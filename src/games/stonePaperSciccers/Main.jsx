@@ -1,18 +1,37 @@
 import React, { useState, useEffect } from 'react'
 import Image from '../../assets/rock-paper-scissors.svg'
-import {Card, Col, Row} from 'antd'
+import {Button, Card, Col, message, Row, notification} from 'antd'
 import paper from "./noun-paper-1423765.svg"
 import rock from "./noun-rock-2018169.svg"
 import scissors from "./noun-scissors-1043569.svg"
 
+
+// for bidirectional connection with server, event based
+import socketIO from 'socket.io-client';
+const socket = socketIO.connect('http://localhost:3000');
+
+socket.on("userjoined", (message)=>{
+  console.log( "a user joined " + message)
+})
+
+
 const Main = () => {
 
+  const [userName, setUserName] = useState("")
+  const [onlineGame, setOnlineGame] = useState(true)
+  const [startGame, setStartGame] = useState(false)
+  const [wait, setWait] = useState(true)
+  const [roomId, setRoomId] = useState("")
   const [count, setCount] = useState(10);
   const [result, SetResult] = useState("neutral")
   const [userSelected, setUserSelected] = useState(1)
   const [computerSelected, setComputerSelected] = useState(1)
 
   const [history, SetHistory] = useState([])
+
+  socket.on("gameStarted", ()=>{
+    setStartGame(true)
+  })
 
   const decreaseCount = ()=>{
     setCount(count - 1);
@@ -55,10 +74,50 @@ const Main = () => {
     //   key: count
     // }])
     decreaseCount();
+
+    socket.emit("choose", {
+      userSelected: selectedId,
+    })
+
+    socket.on("result", (message)=>{
+      setWait(true)
+      console.log(JSON.stringify(message))
+    })
+
+    setWait(false)
+    // after choosing wait for other one to choose
   }
 
+  const CreateGame = ()=>{
+
+    // create a room for this player and let other player join this room by room id
+    socket.emit("creategame", {
+      username: "ketan"
+    })
+    openNotification({title:"", description: "A room id is created. Invite other player to play game"})
+  }
+
+  const StartGame = ()=>{
+    if(roomId == ""){
+      openNotification({title: "roomId error", description: "Create or enter a valid room id to start the game"})
+      console.log("create game or join the room")
+    } else {
+      socket.emit("joinRoom", {
+        roomId: roomId
+      })
+      openNotification({title: "joined room", description: "wait for other player to join the room so that we can start the game"})
+    }
+  }
+
+  const copyRoomId = (event) => event.target.select();
 
   useEffect(() => {
+
+    socket.on("getRoomId", (message)=>{
+      console.log("just")
+      setRoomId(message.roomId)
+    })
+
     SetHistory( history => [...history, {
       userSelected: userSelected,
       computerSelected: computerSelected,
@@ -67,6 +126,29 @@ const Main = () => {
     }])
   }, [result, count])
   
+
+  const openNotification = (message) => {
+    notification.open({
+      message: message.title || " ",
+      description:
+        message.description || "An Error Occured",
+      onClick: () => {
+        console.log('Notification Clicked!');
+      },
+    });
+  };
+
+  if(startGame == false) return (
+    <div className='flex flex-col justify-center items-center h-[100vh]'>
+      <input className="p-3 border border-gray-500 m-5" type="text" value={userName} onChange={(e)=> setUserName(event.target.value)}placeholder='Enter Your Username'/>
+      <div className="flex flex-col md:w-[40%] border border-gray-400">
+      <Button className='m-2' onClick={CreateGame} >Create Game</Button>
+      <input type="text" onFocus={copyRoomId} value={roomId} onChange={(e)=> setRoomId(event.target.value)} className='border border-gray-300 p-2' placeholder='Enter Room Id Or Generate Room Id'/>
+      <Button className='m-2' onClick={StartGame}>Start Game</Button>
+
+      </div>
+    </div>
+  )
 
   return (
     <div className='relative h-[100vh] w-[100vw] flex flex-col bg-gray-800 p-5 overflow-y-scroll'>
@@ -80,7 +162,9 @@ const Main = () => {
           count > 0 &&
           <div className='game'>
 
-          <div className="player-1 site-card-wrapper mt-10 mb-10 md:flex md:flex-col md:justify-center md:items-center">
+          { wait && 
+            
+            <div className="player-1 site-card-wrapper mt-10 mb-10 md:flex md:flex-col md:justify-center md:items-center">
             <h1 className='text-3xl font-bold text-white mb-5'>Select Any One </h1>
             <Row gutter={16} className="md:max-w-[50%]">
               <Col span={8} id="rock" onClick={ onChoose }>
@@ -99,7 +183,7 @@ const Main = () => {
                 </Card>
               </Col>
             </Row>
-          </div>
+          </div>}
 
           <div className="result">
         {
@@ -176,3 +260,5 @@ export default Main
 
 // Change the logos 
 // change white color to pink or light one 
+
+// Show computer selection in ui
