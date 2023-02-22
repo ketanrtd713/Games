@@ -1,22 +1,31 @@
 import React, { useState, useEffect } from 'react'
 import Image from '../../assets/rock-paper-scissors.svg'
-import {Button, Card, Col, message, Row, notification} from 'antd'
+import {Button, Card, Col, message, Row, notification, Space,} from 'antd'
+// import {CopyOutlined} from "antd/icons"
 import paper from "./noun-paper-1423765.svg"
 import rock from "./noun-rock-2018169.svg"
 import scissors from "./noun-scissors-1043569.svg"
+import Loading from '../../components/Loading'
+import { useLocation } from 'react-router-dom'
 
+const serverLocation = 'http://localhost:3000';
 
 // for bidirectional connection with server, event based
 import socketIO from 'socket.io-client';
-const socket = socketIO.connect('http://localhost:3000');
+const socket = socketIO.connect(serverLocation);
 
-socket.on("userjoined", (message)=>{
-  console.log( "a user joined " + message)
-})
 
 
 const Main = () => {
 
+  const search = useLocation().search;
+
+  const [finalOutput, setFinalOutput] = useState()
+  const [socketId, setSocketId] = useState("")
+  const [shareUrl, setShareUrl] = useState("")
+  const [Timer, setTimer] = useState(30)
+  const [opponentUserName, setOpponentUserName] = useState("opponentUser")
+  const [resultText, setResultText] = useState("")
   const [userName, setUserName] = useState("")
   const [onlineGame, setOnlineGame] = useState(true)
   const [startGame, setStartGame] = useState(false)
@@ -29,9 +38,15 @@ const Main = () => {
 
   const [history, SetHistory] = useState([])
 
-  socket.on("gameStarted", ()=>{
-    setStartGame(true)
-  })
+  async function copyTextToClipboard(text) {
+    if ('clipboard' in navigator) {
+      return await navigator.clipboard.writeText(text);
+    } else {
+      return document.execCommand('copy', true, text);
+    }
+  }
+
+  
 
   const decreaseCount = ()=>{
     setCount(count - 1);
@@ -41,6 +56,11 @@ const Main = () => {
     "rock" : 1,
     "paper" : 2,
     "scissors" : 3
+   }
+  const selectionsReverse = {
+    "1": rock ,
+    "2": paper,
+    "3": scissors
    }
 
   const onChoose = (event)=>{
@@ -56,75 +76,137 @@ const Main = () => {
     setComputerSelected(computerChoosen)
     setUserSelected(selectedId)
 
-    if(computerChoosen == selectedId){
-      console.log("draw");
-      SetResult("draw")
-    } else if(computerChoosen == 1 && selectedId == 3 || computerChoosen == 2 && selectedId == 1 ||  computerChoosen == 3 && selectedId == 2 ){ // chancing of winning of computer
-      console.log("computer wins both selected "+computerChoosen+" and me "+ selectedId)
-      SetResult("loose")
-    } else {
-      console.log("user wins both selected "+selectedId+" and me "+ computerChoosen)
-      SetResult("won")
-    }
-
-    // SetHistory( history => [...history, {
-    //   userSelected: selectedId,
-    //   computerSelected: computerChoosen,
-    //   result: result,
-    //   key: count
-    // }])
     decreaseCount();
 
     socket.emit("choose", {
       userSelected: selectedId,
+      socketId: socketId
     })
 
-    socket.on("result", (message)=>{
-      setWait(true)
-      console.log(JSON.stringify(message))
-    })
+    
 
     setWait(false)
     // after choosing wait for other one to choose
   }
 
   const CreateGame = ()=>{
-
-    // create a room for this player and let other player join this room by room id
+    
+    if(userName == ""){
+      openNotification({title: "Enter UserName"})
+      return
+    }
     socket.emit("creategame", {
-      username: "ketan"
+      username: userName
     })
+
     openNotification({title:"", description: "A room id is created. Invite other player to play game"})
+
   }
 
   const StartGame = ()=>{
+    if(userName == ""){
+      openNotification({title: "Enter UserName"})
+      return
+    }
     if(roomId == ""){
       openNotification({title: "roomId error", description: "Create or enter a valid room id to start the game"})
       console.log("create game or join the room")
     } else {
       socket.emit("joinRoom", {
-        roomId: roomId
+        roomId: roomId,
+        userName: userName
       })
       openNotification({title: "joined room", description: "wait for other player to join the room so that we can start the game"})
+      
     }
   }
 
-  const copyRoomId = (event) => event.target.select();
+  const copyRoomId = (event) => {
+    event.target.select();
+    copyTextToClipboard(shareUrl)
+    openNotification({title:"URL is copied to clipboard", description: "  "})
+  };
 
   useEffect(() => {
 
-    socket.on("getRoomId", (message)=>{
-      console.log("just")
-      setRoomId(message.roomId)
+    socket.on("gameStarted", ()=>{ // here get starting object with username and all info that you want
+      setStartGame(true)
+      setTimer(30)
+    })
+  
+    socket.on("socketId", (socketId)=>{
+      setSocketId(socketId)
+    })
+  
+    socket.on("finalOutput", (message)=>{
+       const sockets = Object.keys(message)
+       console.log(sockets)
+       let opponentSocketId = ""
+
+       sockets.forEach(s =>{
+        if(s != socketId){
+          opponentSocketId = s
+        }
+       })
+
+       console.log(message[socketId])
+       console.log(message[opponentSocketId])
+
+       const hist = []
+       let total = 0;
+       for(let i=0; i<message[socketId]["history"].length; i++){
+        hist.push({
+          userSelected: message[socketId]["history"][i],
+          opponentSelected: message[opponentSocketId]["history"][i],
+          result: 1
+        })
+
+        total += 1;
+       }
+
+       console.log(total)
+       console.log(hist)
     })
 
-    SetHistory( history => [...history, {
-      userSelected: userSelected,
-      computerSelected: computerSelected,
-      result: result,
-      key: count
-    }])
-  }, [result, count])
+
+
+
+    socket.on("result", (message)=>{
+      setTimeout(() => {
+        setWait(true)
+      }, 1000);
+      setResultText(message.message)
+      openNotification({title: "Opponent Selected " + message.otherUserSelection, description: message.message, selected: selectionsReverse[message.otherUserSelection]})
+      console.log(JSON.stringify(message))
+    })
+
+    socket.on("opponentUserName", (opponentUserName)=>{
+      setOpponentUserName(opponentUserName)
+    })
+
+    socket.on("stopGame", (message)=>{
+      console.log(message.message)
+      openNotification({title: "Game Stopped", description: "An Opponent disconnected...."})
+
+      // Here Reset All the state of the game
+      setCount(10)
+      setRoomId("")
+      setWait(true)
+      setResultText("")
+      setStartGame(false) // go back to previous state
+    })
+
+    const id = new URLSearchParams(search).get('roomId');
+    if(id != null){ // setting id from the url given and start the game automatically
+      setRoomId(id)
+    }
+
+    socket.on("getRoomId", (message)=>{
+      setRoomId(message.roomId)
+      setShareUrl("http://localhost:5173/games/stonePaperScissors?roomId="+ message.roomId)
+    })
+
+  }, [result])
   
 
   const openNotification = (message) => {
@@ -132,19 +214,29 @@ const Main = () => {
       message: message.title || " ",
       description:
         message.description || "An Error Occured",
+        btn: (<Space>
+          <Card className='cursor-pointer' bodyStyle={{padding: "0"}}  bordered={false}>
+                  <img className='object-full' src={selectionsReverse[message.selected]} alt="" />
+          </Card>
+          </Space>)
+        ,
       onClick: () => {
         console.log('Notification Clicked!');
       },
+      
     });
   };
 
   if(startGame == false) return (
-    <div className='flex flex-col justify-center items-center h-[100vh]'>
-      <input className="p-3 border border-gray-500 m-5" type="text" value={userName} onChange={(e)=> setUserName(event.target.value)}placeholder='Enter Your Username'/>
-      <div className="flex flex-col md:w-[40%] border border-gray-400">
-      <Button className='m-2' onClick={CreateGame} >Create Game</Button>
-      <input type="text" onFocus={copyRoomId} value={roomId} onChange={(e)=> setRoomId(event.target.value)} className='border border-gray-300 p-2' placeholder='Enter Room Id Or Generate Room Id'/>
-      <Button className='m-2' onClick={StartGame}>Start Game</Button>
+    <div className='flex flex-col justify-center items-center h-[100vh] bg-gray-800'>
+      <div className=" p-5 flex flex-col md:w-[40%] border border-gray-400 text-white">
+      <input id='url' onFocus={copyRoomId} className="p-3 border bg-gray-800 text-white border-gray-500 m-5" type="text" value={shareUrl} onChange={(e)=> setShareUrl(event.target.value)}placeholder='Create game to share url'/>
+
+      <Button type='primary' className='m-2' onClick={CreateGame} >Create Room</Button>
+      {/* <input type="text" onFocus={copyRoomId} value={roomId} onChange={(e)=> setRoomId(event.target.value)} className='m-2 border border-gray-600 focus:border-gray-700 p-2 bg-gray-800 text-white' placeholder='Enter Room Id Or Generate Room Id'/> */}
+      <input className="p-3 mb-15 border bg-gray-800 text-white border-gray-500 m-5" type="text" value={userName} onChange={(e)=> setUserName(event.target.value)}placeholder='Enter Your Username To Get Started..'/>
+
+      <Button type='primary' className='m-2' onClick={StartGame}>Start Game</Button>
 
       </div>
     </div>
@@ -183,7 +275,19 @@ const Main = () => {
                 </Card>
               </Col>
             </Row>
-          </div>}
+          </div>
+          
+          
+          }
+
+          {
+            !wait && 
+             <div className='flex flex-col justify-center items-center p-10'>
+               <Loading type="spinningBubbles" color="#ffffff" className=""></Loading>
+               <p className='text-gray-400 mt-20 m-5'>Waiting for other player to select</p>
+             </div>
+            
+          }
 
           <div className="result">
         {
@@ -196,6 +300,9 @@ const Main = () => {
           result == "draw" && <h2 className='text-3xl font-bold text-white text-center'>Draw :)))</h2>
         }
       </div>
+          { wait && 
+              <p className='text-gray-300 text-center '> {resultText} </p>
+          }
         </div>
 
         
@@ -229,9 +336,9 @@ const Main = () => {
         history.map((element, index) =>
         
               <tr key={element.index}>
-            <td>{element.key}</td>
+            <td>{element.index}</td>
             <td>{element.userSelected}</td>
-            <td>{element.computerSelected}</td>
+            <td>{element.opponentSelected}</td>
             <td>{element.result}</td>
           </tr>
 
